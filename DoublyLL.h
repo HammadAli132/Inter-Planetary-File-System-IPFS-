@@ -1,4 +1,8 @@
 #pragma once
+#ifndef DOUBLYLL_H
+#define DOUBLYLL_H
+
+
 #include <iostream>
 #include <string>
 using namespace std;
@@ -44,7 +48,7 @@ public:
 	{
 		if (other.head == nullptr) {
 			this->makenull();
-			this->head = nullptr; return *this;
+			this->head = nullptr; return;
 		}
 		this->head = new DoubleListNode<T>(other.head->data);
 		DoubleListNode<T>* curr = other.head->next;
@@ -112,6 +116,10 @@ public:
 	{
 
 		return Iterator(nullptr);
+	}
+
+	T& front() {
+		return this->head->data;
 	}
 
 	bool isEmpty()
@@ -445,3 +453,5 @@ public:
 		makenull();
 	}
 };
+
+#endif // !DOUBLYLL_H

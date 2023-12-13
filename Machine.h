@@ -2,10 +2,15 @@
 #ifndef MACHINE_H
 #define MACHINE_H
 
-#include <iostream>
 #include <fstream>
+#include <ctime>
+#include <chrono>
+#include <thread>
 #include "BTree.h"
 #include "BigInt.h"
+#include "DoublyLL.h"
+#include "SinglyLL.h"
+#include "Filehandling.h"
 using namespace std;
 
 template <class T, class U>
@@ -33,6 +38,7 @@ struct KeyValuePair {
 
 class Machine
 {
+	FileHandling handle;
 	BIG_INT id;
 	string name;
 	BTree<KeyValuePair<BIG_INT, LinkedList<string>>> indexTree;
@@ -108,7 +114,6 @@ public:
 		this->name = name;
 		this->indexTree.setDegree(treeDegree); // to be taken by the user
 	}
-	Machine() {}
 	BIG_INT getId() const {
 		return this->id;
 	}
@@ -136,6 +141,10 @@ public:
 		return indexTree.getRoot();
 	}
 
+	string getName() {
+		return this->name;
+	}
+
 	void addRoutingTableEntry(Machine* val) {
 		router.push(val);
 	}
@@ -159,9 +168,10 @@ public:
 		}
 	}
 
-	void addFile(BIG_INT id, string extension, const string& filename = "") {
+	void addFile(BIG_INT id, string extension, const string filepath) {
 		KeyValuePair<BIG_INT, LinkedList<string>> data; data.key = id; 
-		string path = "D:\\DHT\\" + name + "\\" + id.getBIG_INT() + "\\";
+		handle.createFolderIfNotExists("D:\\storage\\DHT\\" + name + "\\" + id.getBIG_INT());
+		string path = "D:\\storage\\DHT\\" + name + "\\" + id.getBIG_INT() + "\\";
 		Pair<BTreeNode<KeyValuePair<BIG_INT, LinkedList<string>>>*, int, int> res = indexTree.search(data);
 		if (res.first == nullptr) { // if this id is not already present then just insert the node
 			path += "file_" + id.getBIG_INT() + '_' + to_string(data.value.getSize()) + extension;
@@ -169,18 +179,26 @@ public:
 			indexTree.insert(data);
 		}
 		else { // collision. here we chain the situation.
-			res.first->keys[res.second].value.push(path + filename + "_file_" + to_string(res.first->keys[res.second].value.getSize()));
+			path += "file_" + res.first->keys[res.second].key.getBIG_INT() + "_" + to_string(res.first->keys[res.second].value.getSize()) + extension;
+			res.first->keys[res.second].value.push(path);
 			cout << res.first->keys[res.second].value;
 		}
 		// and add the actual file to the path too.
+		handle.copyFile(filepath, path);
 	}
 
 	void removeFile(BIG_INT id) {
 		KeyValuePair<BIG_INT, LinkedList<string>> data; data.key = id;
 		Pair<BTreeNode<KeyValuePair<BIG_INT, LinkedList<string>>>*, int, int> res = indexTree.search(data);
-		if (res.first == nullptr) return; // if not there so return
+		if (res.first == nullptr) {
+			cout << "no file found with id: " << id.getBIG_INT() << endl;
+			return;
+		}; // if not there so return
 		if (res.first->keys[res.second].value.getSize() == 1) { // only one value of this hash so delete the whole key
 			indexTree.deleteNode(data);
+			// here we delete the whole folder with the specific key too
+			cout << "file removed" << endl;
+			handle.removeFolder("D:\\storage\\DHT\\" + name + "\\" + id.getBIG_INT());
 		}
 		else { // here multiple values of this id so delete from its chain
 			int count = 0;
@@ -190,9 +208,18 @@ public:
 			}
 			int choice;
 			cout << "Enter which file to delete: "; cin >> choice;
-			if (choice - 1 <= res.first->keys[res.second].value.getSize()) {
+			if (choice > 0 && choice - 1 <= res.first->keys[res.second].value.getSize()) {
+				string path; int count = 0;
+				for (LinkedList<string>::Iterator it = res.first->keys[res.second].value.begin(); it != res.first->keys[res.second].value.end(); ++it) {
+					path = *it;
+					if (count == (choice - 1)) break;
+					count++;
+				}
 				res.first->keys[res.second].value.delete_from_index(choice);
 				cout << res.first->keys[res.second].value;
+				cout << "file removed" << endl;
+				// and here we do not have to delete the whole folder just the path of the file
+				handle.removeFile(path);
 			}
 			else {
 				cout << "invalid choice entered" << endl;
@@ -207,6 +234,10 @@ public:
 	}
 
 	void printBtree() {
+		if (this->indexTree.getRoot() == nullptr) {
+			cout << "Tree is empty" << endl;
+			return;
+		}
 		Queue<BTreeNode<KeyValuePair<BIG_INT, LinkedList<string>>>*> levelOrderQueue;
 		levelOrderQueue.enqueue(this->indexTree.getRoot());
 		while (!levelOrderQueue.isEmpty())
@@ -232,6 +263,7 @@ public:
 
 	void shiftFiles(char mode, Machine& other) {
 		if (mode == 'i') { // if insert is mode then we add other's files with id e where e <= currentMachineId
+			if (other.indexTree.getRoot() == nullptr) return;
 			BIG_INT thisId = id;
 			BIG_INT nextId = other.getId();
 			// now we do level order traversal of others Btree and insert these files in this's Btree
@@ -245,12 +277,24 @@ public:
 
 				for (int i = 0; i < current->keys.getSize(); i++)
 				{
-					if (current->keys[i].key <= thisId) {
-						// here we need to move files too but that is later work
-						dataToBeDeleted.push(current->keys[i]);
-						for (LinkedList<string>::Iterator it = current->keys[i].value.begin(); it != current->keys[i].value.end(); ++it) {
-							//addFile(current->keys[i].key, getExtension(*it));
-							addFile(current->keys[i].key, ".txt");
+					if (thisId < nextId) { // the case where the next machine is not head
+						if (current->keys[i].key <= thisId) {
+							// here we need to move files too but that is later work
+							dataToBeDeleted.push(current->keys[i]);
+							for (LinkedList<string>::Iterator it = current->keys[i].value.begin(); it != current->keys[i].value.end(); ++it) {
+								addFile(current->keys[i].key, getExtension(*it), *it);
+							}
+							handle.removeFolder("D:\\storage\\DHT\\" + other.getName() + "\\" + current->keys[i].key.getBIG_INT());
+						}
+					}
+					else { // now next machine is head. we need to be careful here while transferring files
+						if (current->keys[i].key <= thisId && current->keys[i].key > nextId) {
+							// here we need to move files too but that is later work
+							dataToBeDeleted.push(current->keys[i]);
+							for (LinkedList<string>::Iterator it = current->keys[i].value.begin(); it != current->keys[i].value.end(); ++it) {
+								addFile(current->keys[i].key, getExtension(*it), *it);
+							}
+							handle.removeFolder("D:\\storage\\DHT\\" + other.getName() + "\\" + current->keys[i].key.getBIG_INT());
 						}
 					}
 				}
@@ -266,6 +310,7 @@ public:
 		}
 		else if (mode == 'd') { // if delete is mode then we empty this machines files into other
 			// now we do level order traversal of others Btree and insert these files in this's Btree
+			if (this->indexTree.getRoot() == nullptr) return;
 			Queue<BTreeNode<KeyValuePair<BIG_INT, LinkedList<string>>>*> levelOrderQueue;
 			levelOrderQueue.enqueue(this->indexTree.getRoot());
 			while (!levelOrderQueue.isEmpty())
@@ -277,8 +322,7 @@ public:
 				{
 					// here we need to move files too but that is later work
 					for (LinkedList<string>::Iterator it = current->keys[i].value.begin(); it != current->keys[i].value.end(); ++it) {
-						//other.addFile(current->keys[i].key, getExtension(*it));
-						other.addFile(current->keys[i].key, ".txt");
+						other.addFile(current->keys[i].key, getExtension(*it), *it);
 					}
 					
 				}
