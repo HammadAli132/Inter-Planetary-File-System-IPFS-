@@ -1,7 +1,6 @@
 #pragma once
 
 #include <iostream>
-#include <fstream>
 #include <string>
 #include "Queue.h"
 #include "ArrayBasedList.h"
@@ -23,7 +22,7 @@ public:
     ArrayBasedList<BTreeNode<T>*> children;
     bool leaf;
     BTreeNode<T>* p;
-    BTreeNode(bool isLeaf = false) : leaf(isLeaf), p(nullptr) {}
+    BTreeNode(bool isLeaf = true) : leaf(isLeaf), p(nullptr) {}
 };
 
 template <typename T>
@@ -36,7 +35,7 @@ private:
 public:
     BTree(int degree = 0) : m(degree)
     {
-        root = new BTreeNode<T>(true);
+        root = nullptr;
     }
 
     void setDegree(int degree) {
@@ -45,6 +44,7 @@ public:
 
     Pair<BTreeNode<T>*, int, int> search(T key, BTreeNode<T>* node = nullptr, int childIndex = 0)
     {
+        if (root == nullptr) return { nullptr, -1, -1 };
         node = (node == nullptr) ? root : node;
 
         int i = 0;
@@ -188,7 +188,10 @@ public:
         if (res.first == nullptr)
             return;
 
-        if (res.first->leaf)
+        if (!res.first->p && res.first->leaf) {
+            res.first->keys.deleteItem(res.second);
+        }
+        else if (res.first->leaf)
         {
             deleteFromLeaf(res.first, res.second, res.third);
         }
@@ -483,6 +486,21 @@ public:
         }
     }
 
+    ~BTree() {
 
+        BTreeNode<T>* rootnode = getRoot();
+        if (rootnode == nullptr) return;
+        Queue<BTreeNode<T>*> q;
+        q.enqueue(rootnode);
+        while (!q.isEmpty()) {
+
+            BTreeNode<T>* current = q.head();
+            q.dequeue();
+            for (int i = 0; i < current->children.getSize(); i++) {
+                q.enqueue(current->children[i]);
+            }
+            delete current;
+        }
+    }
 };
 
